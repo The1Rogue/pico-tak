@@ -4,8 +4,6 @@ __lua__
 --pico-tak
 --by the1rogue
 
--- tut1 = "the goal of the game is to make a road from one edge to the opposite, horizontal or vertical,\nonly orthogonal connection count.\n\ncapstones and flats are part of the road, walls are not"
-
 
 function trueSgn(i) return i==0 and 0 or sgn(i) end
 
@@ -13,8 +11,21 @@ function trans_sine(p) return 1 + cos(1 - p >> 1) >> 1 end
 
 
 function _init()
-    size = 6
-    makeboard()
+    botgame = false
+    anim = 256
+
+    ply = 0
+    reserves = {}
+    hist = {}
+    flatdif = 0
+
+    cond = "0-0"
+    sel = {}
+    mx = 0
+    my = 0
+    drops = 0
+
+    initboard()
     palt(0x1000)
     pal(1, 131, 1)
     pal(2, 132, 1)
@@ -37,31 +48,18 @@ function _draw()
     _drw()
 end
 
-anim = 256
 
-size = 0
-flat = 0
-caps = 0
-
-caps = {0, 0, 0, 0, 1, 1, 2, 2}
-flats = {0, 0, 10, 15, 21, 30, 40, 50}
-
-ply = 0
-reserves = {}
-board = {}
-hist = {}
-flatdif = 0
-
-function makeboard()
+function initboard()
     cx = 7
     cy = 2
+    ply = 0
     hist = {}
     board = {}
-    reserves = {caps[size], caps[size], flats[size], flats[size]}
+    reserves = {1, 1, 30, 30}
     cond = "0-0"
-    for x=1,size do
+    for x=1,6 do
         board[x] = {}
-        for y=1,size do
+        for y=1,6 do
             board[x][y] = {}
         end
     end
@@ -74,16 +72,20 @@ function _drwtitle()
         map(16, 16) --place map below
     end
 
-    if anim > 0 then    
+    if anim > 0 then
         --cover sections not yet revealed
-        rectfill(-1, 0, delta - 53, 24, 3) 
+        rectfill(-1, 0, delta - 53, 24, 3)
         rectfill(-1, 80, delta - 72, 128, 3)
         rectfill(-1, 96, delta - 50, 128, 3)
-        
+
         --print shifting menu
+        bg = botgame and 1 or -1
         map(0, 16, delta - 256, 0, 16, 16)
         print("a beautiful game", delta - 216, 69, 4)
-        print("🅾️|❎ play", delta - 211, 93, 4)
+        print("p VS p", delta - 203 - 2*bg, 93, 4)
+        print("p VS ai", delta - 203 + 2*bg, 102, 4)
+        print("➡️", delta - 212, 97.5 + 4.5 * bg, 4)
+
 
         --draw bends
         for i=0,127 do
@@ -98,7 +100,7 @@ function _drwtitle()
             spr(8, 0, y, 2, 2)
             spr(10, 112, y, 2, 2)
         end
-        y = delta - 242 
+        y = delta - 242
         spr(0, 0, y, 2,2)
         spr(2, 112, y, 2,2)
     end
@@ -147,7 +149,7 @@ function _drwgame()
         print("press 🅾️|❎ to exit", 26, 122, 4)
         if cond == "1/2-1/2" then
             print("its a draw!", 45, 2, 4)
-        elseif sub(cond, 1,1) == "0" then 
+        elseif sub(cond, 1,1) == "0" then
             print("black wins!", 45, 2, 4)
         else
             print("white wins!", 45, 2, 4)
@@ -158,14 +160,13 @@ function _drwgame()
 end
 
 function _drwstack(stack, x, y)
-    for i, piece in ipairs(stack) do 
+    for i, piece in ipairs(stack) do
         spr(piece*2, x, y - i * 2, 2, 2)
     end
 end
 
-hl = 9
 function _drwhl(s, x, y)
-    pal({[0]=hl,[5]=hl,[6]=hl,[7]=hl})
+    pal({[0]=9,[5]=9,[6]=9,[7]=9})
     spr(s, x+1, y, 2, 2)
     spr(s, x-1, y, 2, 2)
     spr(s, x, y+1, 2, 2)
@@ -180,7 +181,7 @@ function _drwuser()
     if (cx == 0 or cx == 7) and cy != 1 then
         truey = 98 - 2*reserves[3 + cx/7]
     end
-        
+
     if _upd == _updnone then
         spr(32 + 2 * (ply%2) + 8 * (t()&0b.1), truex, truey, 2, 2)
         print("❎ undo | 🅾️ select", 26, 122, 4)
@@ -194,14 +195,13 @@ function _drwuser()
         end
     else
         truey -= 3*#board[cx][cy] + 3
-        for i, piece in ipairs(sel) do 
+        for i, piece in ipairs(sel) do
             _drwhl(piece*2, truex, truey - i * 2 , 2, 2)
         end
         _drwstack(sel, truex, truey, true)
         print("❎ - | 🅾️ drop", 36, 122, 4)
     end
 end
-
 
 function activecolor()
     return ply < 2 and 1-ply or ply%2
@@ -215,9 +215,11 @@ function _updtitle()
     if anim < -320 then
         _upd = _updnone
         _drw = _drwgame
-    elseif btnp(4) or btnp(5) then 
-        makeboard()
+    elseif btnp(4) or btnp(5) or btnp(1) then
+        initboard()
         anim -= 1
+    elseif btnp(2) or btnp(3) then
+        botgame = not botgame
     end
 end
 
@@ -235,6 +237,10 @@ function _updcursor()
 end
 
 function _updnone()
+    if ply & 1 == 1 and botgame then
+        dobotturn()
+    end
+
     _updcursor()
 
     if btnp(4) then
@@ -249,7 +255,7 @@ function _updnone()
             end
         elseif ply >= 2 then  --technically redundant check???
             s = board[cx][cy]
-            if #s > 0 and s[#s]%2 == activecolor() then 
+            if #s > 0 and s[#s]%2 == activecolor() then
                 sfx(2)
                 _upd = _updstk
                 sel = pickup(cx, cy)
@@ -258,18 +264,19 @@ function _updnone()
     elseif btnp(5) and #hist > 0 then
         sfx(1)
         undo()
+        if botgame then undo() end --undo two ply when against bot
     end
 end
 
 function _updres()
     _updcursor()
 
-    if btnp(4) then 
+    if btnp(4) then
         if cx == 0 or cx == 7 then
             if sel > 1 and ply >= 2 then
                 sel = sel % 4 + 2
             end
-        
+
         elseif #board[cx][cy] == 0 then
             board[cx][cy] = {sel}
             sfx(0)
@@ -286,13 +293,13 @@ end
 function _updstk()
     dx = 0
     dy = 0
-    if btnp(0) and cx > 1 and my == 0 then 
+    if btnp(0) and cx > 1 and my == 0 then
         dx = -1
-    elseif btnp(1) and cx < size and my == 0 then 
+    elseif btnp(1) and cx < 6 and my == 0 then
         dx = 1
-    elseif btnp(2) and cy > 1 and mx == 0 then 
+    elseif btnp(2) and cy > 1 and mx == 0 then
         dy = -1
-    elseif btnp(3) and cy < size and mx == 0 then 
+    elseif btnp(3) and cy < 6 and mx == 0 then
         dy = 1
     end
 
@@ -307,9 +314,9 @@ function _updstk()
                 cy += dy
                 drops = (drops << 1) | 1
                 add(board[cx][cy], deli(sel, 1))
-                if #sel == 0 then 
+                if #sel == 0 then
                     makemove(false) --anything else?
-                end    
+                end
             elseif #s > 0 and s[#s] >= 2 and #sel == 1 and sel[1] < 2 then --its a wall, and we can smash
                 cx += dx
                 mx += dx
@@ -324,7 +331,7 @@ function _updstk()
         else -- dx == -trueSgn(mx) and dy == -trueSgn(my) must hold,  move back
             sfx(1)
             s = board[cx][cy]
-            repeat 
+            repeat
                 add(sel, deli(s), 1)
                 drops >>= 1
             until drops & 0b.1 != 0
@@ -351,27 +358,18 @@ function _updstk()
 end
 
 function _updend()
-    if btnp(4) then
+    if btnp(4) or btnp(5) then --todo animate return?
         anim = 256
         _upd = _updtitle
         _drw = _drwtitle
     end
 end
 
-cond = "0-0"
-sel = {}
-mx = 0
-my = 0
-drops = 0
-
-cx = 1
-cy = 1
-
 function pickup(x, y)
     b = board[x][y]
-    stk = {unpack(b, max(1, #b-size+1),  #b)}
-    if #stk > size then
-        board[x][y] = {unpack(b, 1, #b-size)}
+    stk = {unpack(b, max(1, #b-5),  #b)}
+    if #b >= 6 then
+        board[x][y] = {unpack(b, 1, #b-6)}
     else
         board[x][y] = {}
     end
@@ -383,23 +381,36 @@ function try_move(move)
         board[move.sqx][move.sqy] = {move.p}
         reserves[r(move.p)] -= 1
 
-    else        
+    else
         --check if spread is inbounds
-        if move.sqx < 1 or move.sqx > 6 or move.sqy < 1 or move.sqy > 6 then 
+        if move.sqx < 1 or move.sqx > 6 or move.sqy < 1 or move.sqy > 6 then
             return false
         end
 
-        --detect if spreading is with cap
-        sqx = move.sqx - move.mx*move.l
-        sqy = move.sqy - move.my*move.l
+    
+        local sqx = move.sqx - move.mx*move.l
+        local sqy = move.sqy - move.my*move.l
 
+
+        --detect if spreading is with cap
         start = board[sqx][sqy]
+        if start[#start] == nil then
+            printh(sqx)
+            printh(sqy)
+            printh(move.d)
+            printh(move.mx)
+            printh(move.my)
+            for i=1,#start do
+                printh(start[i])
+            end
+            -- return false
+        end
         iscap = start[#start] < 2
 
         --check end for wall, cap, or smash
         b = board[move.sqx][move.sqy]
-        if b[#b] < 2 then return false --its a cap
-        elseif b[#b] < 4 then --its a wall
+        if #b > 0 and b[#b] < 2 then return false --its a cap
+        elseif #b > 0 and b[#b] < 4 then --its a wall
             if iscap and drops & 1 == 1 then --we can smash
                 move.s = true
             else
@@ -409,27 +420,27 @@ function try_move(move)
 
         for i=1,move.l-1 do --check for walls / caps along path
             b = board[move.sqx-move.mx*i][move.sqy-move.my*i]
-            if b[#b] < 4 then --its a wall or a cap
+            if #b > 0 and b[#b] < 4 then --its a wall or a cap
                 return false
             end
         end
 
         --apply spread
         s = pickup(sqx, sqy)
-        d = move.d
 
         if move.s then --smash
             b = board[move.sqx][move.sqy]
             b[#b] += 2
         end
-        
-        for i=#s-1,0,-1 do --drop drops
-            if move.d & (1<<i) == 1 then
+
+        while #s > 0 do --drop drops
+            if move.d & (0b.1<<#s) != 0 then
                 sqx += move.mx
                 sqy += move.my
             end
             add(board[sqx][sqy], deli(s, 1))
         end
+
     end
     ply += 1
     add(hist, move)
@@ -450,16 +461,18 @@ function undo()
         end
 
         s = {}
-        while move.d >= 1 do
+        d = move.d
+        sqx = move.sqx
+        sqy = move.sqy
+        repeat
             add(s, deli(b), 1)
-            if move.d & 1 > 0 then
-                move.sqx -= move.mx
-                move.sqy -= move.my
-                b = board[move.sqx][move.sqy]
+            if d & 1 == 1 then
+                sqx -= move.mx
+                sqy -= move.my
+                b = board[sqx][sqy]
             end
-            move.d >>= 1
-
-        end
+            d >>= 1
+        until d < 1
         for p in all(s) do add(b, p) end --then place them back
     end
 
@@ -468,7 +481,7 @@ function undo()
     cond = "0-0" --we can assume after an undo the game is ongoing
 end
 
-function makemove(isSmash) --todo, differentiate actual move and bot test move??
+function makemove(isSmash)
     move = {}
     move.m = _upd == _updres and "P" or "M"
     move.sqx = cx
@@ -497,18 +510,33 @@ function makemove(isSmash) --todo, differentiate actual move and bot test move??
     end
 end
 
-
 function countflats()
+    open = 0
     flatdif = 0
-    for r in all(board) do for s in all(r) do
+    flatW = 0
+    flatB = 0
+    capW = 0
+    capB = 0
+    for x, r in ipairs(board) do for y, s in ipairs(r) do
         if #s > 0 then
-            if s[#s] == 4 then
+            if s[#s] == 0 then 
+                capW = 6-abs(x-3.5)-abs(y-3.5)
+            elseif s[#s] == 1 then
+                capB = 6-abs(x-3.5)-abs(y-3.5)
+            elseif s[#s] == 4 then
+                flatW += 3-abs(x-3.5)
+                flatW += 3-abs(y-3.5)
                 flatdif += 1
             elseif s[#s] == 5 then
+                flatB += 3-abs(x-3.5)
+                flatB += 3-abs(y-3.5)
                 flatdif -= 1
             end
+        else
+            open += 1
         end
     end end
+
 end
 
 function detectwins()
@@ -522,8 +550,8 @@ function detectwins()
         end
         if e then break end
     end
-    
-    if not e or reserves[1] + reserves[3] == 0 or reserves[2] + reserves[4] == 0 then 
+
+    if not e or reserves[1] + reserves[3] == 0 or reserves[2] + reserves[4] == 0 then
         if flatdif > 0 then return "f-0"
         elseif flatdif < 0 then return "0-f"
         else return "1/2-1/2" end
@@ -532,12 +560,12 @@ function detectwins()
 
         q = {}
         v = {}
-        for i=1,64 do v[i] = false end 
+        for i=7,42 do v[i] = false end
         d = {{0, 1}, {0, -1}, {1, 0}, {-1, 0}}
         rw = false
         rb = false
         --vertical roads
-        for x=1,size do 
+        for x=1,6 do
             s = board[x][1]
             if #s > 0 and s[#s]\2 != 1 then
                 add(q, {x,1,s[#s]%2})
@@ -550,27 +578,27 @@ function detectwins()
             for i in all(d) do
                 nx = n[1] + i[1]
                 ny = n[2] + i[2]
-                
-                if nx > 0 and nx <= size and ny > 0 and ny <= size and not v[6*nx + ny] then
+
+                if nx > 0 and nx <= 6 and ny > 0 and ny <= 6 and not v[6*nx + ny] then
                     sn = board[nx][ny]
                     if #sn > 0 and sn[#sn]\2 != 1 and sn[#sn]%2 == n[3] then
-                        if ny == size and n[3] == 0 then 
+                        if ny == 6 and n[3] == 0 then
                             rw = true
-                        elseif ny == size and n[3] == 1 then
+                        elseif ny == 6 and n[3] == 1 then
                             rb = true
                         else
                             add(q, {nx, ny, n[3]})
                         end
                     end
                 end
-            end          
+            end
         end
 
         --horizontal roads
         v = {}
-        for i=1,64 do v[i] = false end 
+        for i=7,42 do v[i] = false end
 
-        for y=1,size do 
+        for y=1,6 do
             s = board[1][y]
             if #s > 0 and s[#s]\2 != 1 then
                 add(q, {1,y,s[#s]%2})
@@ -583,20 +611,20 @@ function detectwins()
             for i in all(d) do
                 nx = n[1] + i[1]
                 ny = n[2] + i[2]
-                
-                if nx > 0 and nx <= size and ny > 0 and ny <= size and not v[6*nx + ny] then
+
+                if nx > 0 and nx <= 6 and ny > 0 and ny <= 6 and not v[6*nx + ny] then
                     sn = board[nx][ny]
                     if #sn > 0 and sn[#sn]\2 != 1 and sn[#sn]%2 == n[3] then
-                        if nx == size and n[3] == 0 then 
+                        if nx == 6 and n[3] == 0 then
                             rw = true
-                        elseif nx == size and n[3] == 1 then
+                        elseif nx == 6 and n[3] == 1 then
                             rb = true
                         else
                             add(q, {nx, ny, n[3]})
                         end
                     end
                 end
-            end          
+            end
         end
 
 
@@ -615,30 +643,94 @@ function detectwins()
 end
 
 
-function negamax(depth)
-    if depth == 0 then return eval() * sgn(ply%2 - 1) end
+function getmoves()
+    local moves = {}
+    for x=1,6 do
+        for y=1,6 do
 
-    --TODO, should probably make sure there is at least some move here
-    local max, bestmove = 0x8000, {} --min num value
-
-    --TODO actual move generation
-    for move in all({}) do
-        --do move
-        local s, _ = -negamax(depth-1)
-        undo()
-        if s > max then
-            max = s 
-            bestmove = move
+            local b = board[x][y] 
+            if #b == 0 then --empty square
+                for i=0,4,2 do --todo count reserves
+                    if reserves[r(i + (ply&1))] > 0 then
+                        add(moves, {m = "P", sqx = x, sqy = y, p = i + (ply&1)})
+                    end
+                end
+            elseif b[#b] & 1 == ply & 1 then --controlled by active player
+                for i=1,(1<<min(#b, 6))-1 do
+                    c = i
+                    l = 0
+                    repeat
+                        c &= c-1
+                        l += 1
+                    until c == 0
+                    
+                    if i < 1 then
+                        printh("something went wrong")
+                    end
+                    
+                    add(moves, {m = "M", sqx = x+l, sqy = y, mx = 1, my = 0, d = i, l=l})
+                    add(moves, {m = "M", sqx = x-l, sqy = y, mx = -1, my = 0, d = i, l=l})
+                    add(moves, {m = "M", sqx = x, sqy = y+l, mx = 0, my = 1, d = i, l=l})
+                    add(moves, {m = "M", sqx = x, sqy = y-l, mx = 0, my = -1, d = i, l=l})
+                end
+            end
         end
     end
-    return max, bestmove
+
+    return moves
 end
 
-function eval() --negative values are good for black, positive good for white
-    if cond != "0-0" then
-        return 0x7FFF * (sub(cond, 1,1) == "0" and -1 or 1)
+function dobotturn()
+    if ply < 2 then
+        if #board[1][1] == 0 then
+            try_move{m = "P", sqx = 1, sqy = 1, p = activecolor() + 4}
+        else
+            try_move{m = "P", sqx = 6, sqy = 1, p = activecolor() + 4}
+        end
+    else
+        local e, botmove = negamax(-0x7999, 0x7999, 2)
+        printh("eval: " .. (ply\2 + 1) .. ". " .. e)
+        try_move(botmove)
     end
-    return flatdif
+end
+
+
+function negamax(a, b, depth)
+    if cond != "0-0" then return 0x7000 * (sub(cond, 1,1) == "0" and -1 or 1) * -(2*(ply&1) - 1), {}
+    elseif depth == 0 then return eval(), {} end
+
+    local bestmove = {} --min num value
+
+    for mov in all(getmoves()) do
+        if try_move(mov) then
+            local score = -negamax(-b, -a, depth-1)
+            undo()
+            if score >= b then
+                return b, bestmove
+            elseif score > a then
+                bestmove = mov
+                a = score
+            end
+        end
+    end
+    return a, bestmove
+end
+
+function eval()
+    local sc = flatdif * -(2*(ply&1) - 1)
+    
+    
+    sc -= max(reserves[3], reserves[4])
+    -- sc -= open / 20
+    -- sc += reserves[3 - (ply&1)]
+
+    -- sc -= reserves[(ply&1) + 1] * ply - 4
+    sc += (ply&1 == 1 and capB or capW) * min(ply - 6, 2)
+
+    sc += (ply&1 == 1 and flatB or flatW)
+
+
+    return sc
 end
 
 
@@ -898,8 +990,8 @@ __map__
 4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a00a8a9aaa9aaa9aaa9aaa9aaa9aaab00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 000000000000000000000000000000000098999a999a999a999a999a999a9b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000005c4a4a4a4a5f000000000000a8a9aaa9aaa9aaa9aaa9aaa9aaab00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000006c4a4a4a4a6f00000000000098999a999a999a999a999a999a9b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000000000000000000000000000000a8a9aaa9aaa9aaa9aaa9aaa9aaab00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000004a4a4a4a4a4a00000000000098999a999a999a999a999a999a9b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000006c4a4a4a4a6f000000000000a8a9aaa9aaa9aaa9aaa9aaa9aaab00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0000000000000000000000000000000000b8b9bab9bab9bab9bab9bab9babb00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 000000000000000000000000000000004a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __sfx__
